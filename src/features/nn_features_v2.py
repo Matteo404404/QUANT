@@ -46,7 +46,7 @@ def compute_nn_features_v2(
     idx_to_tid     = {i: t for i, t in enumerate(all_time_ids)}
     tid_to_idx     = {t: i for i, t in enumerate(all_time_ids)}
 
-    # Pivot base per KNN
+    # Pivot base for KNN
     base_pivot = build_time_pivot(features_df, "rv_full")
 
     # fit two KNN with different metrics

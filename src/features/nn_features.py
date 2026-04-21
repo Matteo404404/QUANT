@@ -105,7 +105,7 @@ def compute_nn_features(
         neighbor_tids    = [idx_to_time_id[j] for j in neighbor_indices]
         dists            = distances[i]         # (K,)
 
-        # Distanza del nearest e ratio
+       
         dist_1     = dists[0]
         dist_k     = dists[-1]
         dist_ratio = dist_1 / (dist_k + 1e-10)

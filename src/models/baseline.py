@@ -110,7 +110,7 @@ def train_lightgbm(
     X_test  = test_df[feat_cols].values
     y_test  = test_df["target"].values
 
-    # GroupKFold su time_id
+    # GroupKFold on time_id
     gkf = GroupKFold(n_splits=n_folds)
     oof_preds   = np.zeros(len(train_df))
     test_preds  = np.zeros(len(test_df))

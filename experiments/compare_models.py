@@ -145,7 +145,7 @@ def main():
     gnn_df           = pd.DataFrame(gnn_rows)
     gnn_df["gnn_pred"] = y_gnn_raw[: len(gnn_df)]
 
-    # Merge con lgb_test
+    # Merge with lgb_test
     merged = lgb_test.merge(gnn_df, on=["time_id", "stock_id"], how="left")
     merged["gnn_pred"] = merged["gnn_pred"].fillna(merged["lgb_pred"])
 

@@ -233,9 +233,9 @@ def main(cfg: dict):
     )
 
     if len(graphs) == 0:
-        raise RuntimeError("No graphs built — check window/threshold parameters.")
+        raise RuntimeError("No graphs built check window/threshold parameters.")
 
-    # --- Temporal train/val/test split (NO shuffling — time matters) ---
+    # --- Temporal train/val/test split (NO shuffling, time matters) ---
     n      = len(graphs)
     n_train = int(n * cfg["train_frac"])
     n_val   = int(n * cfg["val_frac"])

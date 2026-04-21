@@ -1,18 +1,20 @@
 """
-app.py
-======
 Streamlit Dashboard for Optiver Realized Volatility
 
+
 Tabs:
-  1. Volatility Predictions — interactive correlation graph, pred vs actual
-  2. Systemic Risk          — hub ranking, contagion heatmap, time series
-  3. Model Performance      — RMSPE/R² comparison, feature importance
+  1. Volatility Predictions  -- interactive correlation graph, pred vs actual
+  2. Systemic Risk           -- hub ranking, contagion heatmap, time series
+  3. Model Performance       -- RMSPE/R2 comparison, feature importance
+
 
 Run:
   streamlit run dashboard/app.py
 """
 
+
 from __future__ import annotations
+
 
 import sys
 import numpy as np
@@ -22,27 +24,34 @@ import plotly.graph_objects as go
 import plotly.express as px
 from pathlib import Path
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 
 from src.features.lob_features import PROCESSED_DIR
 from src.metrics import rmspe as _rmspe, r2_score as _r2
 
+
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
 
+
 # ---------------------------------------------------------------------------
-# Config pagina
+# Page config
 # ---------------------------------------------------------------------------
 
+
 st.set_page_config(
-    page_title = "Optiver Volatility — Research Dashboard",
+    page_title = "Optiver Volatility -- Research Dashboard",
     page_icon  = "📈",
     layout     = "wide",
     initial_sidebar_state = "expanded",
 )
 
+
 # ---------------------------------------------------------------------------
-# CSS custom
+# Custom CSS
 # ---------------------------------------------------------------------------
+
 
 st.markdown("""
 <style>
@@ -68,9 +77,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 # ---------------------------------------------------------------------------
 # Data loading (cached)
 # ---------------------------------------------------------------------------
+
 
 @st.cache_data(show_spinner=False)
 def load_features():
@@ -79,18 +90,17 @@ def load_features():
         p = PROCESSED_DIR / "features.parquet"
     return pd.read_parquet(p)
 
+
 @st.cache_data(show_spinner=False)
 def load_predictions():
     lgb_path = PROCESSED_DIR / "lgb_test.parquet"
     if not lgb_path.exists():
         return None
     df = pd.read_parquet(lgb_path)
-    # add gnn_pred if available
     gnn_path = PROCESSED_DIR / "gnn_test.parquet"
     if gnn_path.exists():
         gnn_df = pd.read_parquet(gnn_path)
         df = df.merge(gnn_df[["stock_id","time_id","gnn_pred"]], on=["stock_id","time_id"], how="left")
-    # Ensemble weights loaded from results if available, otherwise default
     results_csv = Path(__file__).resolve().parents[1] / "results_final.csv"
     w_lgb, w_gnn = 0.623, 0.377
     if results_csv.exists():
@@ -108,6 +118,7 @@ def load_predictions():
         df["ensemble_pred"] = df["lgb_pred"]
     return df
 
+
 @st.cache_data(show_spinner=False)
 def load_systemic_risk():
     sr_path  = PROCESSED_DIR / "systemic_risk.parquet"
@@ -116,23 +127,27 @@ def load_systemic_risk():
         return None, None
     return pd.read_parquet(sr_path), pd.read_csv(hub_path)
 
+
 @st.cache_data(show_spinner=False)
 def load_lgb_importance():
-    # loads importance from the last saved fold
     imp_path = PROCESSED_DIR / "lgb_importance.csv"
     if imp_path.exists():
         return pd.read_csv(imp_path)
     return None
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def rmspe(y_true, y_pred):
     return _rmspe(np.asarray(y_true), np.asarray(y_pred))
 
+
 def r2(y_true, y_pred):
     return _r2(np.asarray(y_true), np.asarray(y_pred))
+
 
 def build_graph_figure(
     features_df: pd.DataFrame,
@@ -161,24 +176,19 @@ def build_graph_figure(
     n_stocks = len(stocks)
     s_to_idx = {s: i for i, s in enumerate(stocks)}
 
-    # absolute error for colour
     merged["abs_error"] = np.abs(merged["target"] - merged["ensemble_pred"])
     merged["pct_error"] = merged["abs_error"] / (merged["target"] + 1e-9) * 100
 
-    # Layout circolare
     angles = np.linspace(0, 2 * np.pi, n_stocks, endpoint=False)
     pos_x  = np.cos(angles)
     pos_y  = np.sin(angles)
     idx_to_pos = {i: (pos_x[i], pos_y[i]) for i in range(n_stocks)}
 
-    # Similarity proxy: inverse absolute RV difference (single-snapshot approximation,
-    # not the rolling Pearson correlation the GNN uses, but fast enough for the dashboard)
     rv_series = feat.set_index("stock_id")["rv_full"].reindex(stocks).fillna(0).values
     rv_mat   = rv_series.reshape(-1, 1) - rv_series.reshape(1, -1)
     sim_mat  = 1.0 / (1.0 + np.abs(rv_mat) * 1000)
     np.fill_diagonal(sim_mat, 0)
 
-    # top-K edges
     triu_idx = np.triu_indices(n_stocks, k=1)
     weights  = sim_mat[triu_idx]
     top_k    = min(top_k_edges, len(weights))
@@ -198,7 +208,6 @@ def build_graph_figure(
             showlegend=False,
         ))
 
-    # nodes
     node_x      = [idx_to_pos[s_to_idx[s]][0] for s in stocks]
     node_y      = [idx_to_pos[s_to_idx[s]][1] for s in stocks]
     node_color  = merged.set_index("stock_id")["pct_error"].reindex(stocks).fillna(0).values
@@ -242,7 +251,7 @@ def build_graph_figure(
     fig = go.Figure(data=edge_traces + [node_trace])
     fig.update_layout(
         title=dict(
-            text=f"Volatility Graph — Time ID {time_id}  ({n_stocks} stocks, top-{top_k} edges)",
+            text=f"Volatility Graph -- Time ID {time_id}  ({n_stocks} stocks, top-{top_k} edges)",
             font=dict(size=14, color="#ffffff"),
         ),
         paper_bgcolor="#0e1117",
@@ -275,7 +284,6 @@ def build_scatter_pred_actual(preds_df: pd.DataFrame, time_id: int) -> go.Figure
         hoverinfo="text",
         name="Predictions",
     ))
-    # ideal line
     lim = max(sub["target"].max(), sub["ensemble_pred"].max()) * 1.05
     fig.add_trace(go.Scatter(
         x=[0, lim], y=[0, lim],
@@ -284,7 +292,7 @@ def build_scatter_pred_actual(preds_df: pd.DataFrame, time_id: int) -> go.Figure
         name="Perfect prediction",
     ))
     fig.update_layout(
-        title=dict(text=f"Predicted vs Actual RV — Time ID {time_id}", font=dict(color="#fff")),
+        title=dict(text=f"Predicted vs Actual RV -- Time ID {time_id}", font=dict(color="#fff")),
         xaxis=dict(title="Actual RV", gridcolor="#2a2d35", color="#aaa"),
         yaxis=dict(title="Predicted RV", gridcolor="#2a2d35", color="#aaa"),
         paper_bgcolor="#0e1117", plot_bgcolor="#13161d",
@@ -297,6 +305,7 @@ def build_scatter_pred_actual(preds_df: pd.DataFrame, time_id: int) -> go.Figure
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
+
 
 with st.sidebar:
     st.markdown("## 📈 Optiver Volatility")
@@ -316,23 +325,28 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+
 # ---------------------------------------------------------------------------
 # Load data
 # ---------------------------------------------------------------------------
+
 
 with st.spinner("Loading data..."):
     features_df  = load_features()
     preds_df     = load_predictions()
     sr_df, hub_df = load_systemic_risk()
 
+
 all_time_ids = sorted(features_df["time_id"].unique())
 test_time_ids = (
     sorted(preds_df["time_id"].unique()) if preds_df is not None else all_time_ids[-100:]
 )
 
+
 # ---------------------------------------------------------------------------
-# TAB 1 — Volatility Predictions
+# Tab 1 -- Volatility Predictions
 # ---------------------------------------------------------------------------
+
 
 if tab_choice == "🔮 Volatility Predictions":
 
@@ -354,7 +368,6 @@ if tab_choice == "🔮 Volatility Predictions":
         top_k = st.number_input("Top-K edges", min_value=10, max_value=100, value=30, step=5)
 
     if preds_df is not None:
-        # quick metrics for this time_id
         sub = preds_df[preds_df["time_id"] == selected_tid]
         if len(sub) > 0:
             tid_rmspe = rmspe(sub["target"].values, sub["ensemble_pred"].values)
@@ -378,7 +391,6 @@ if tab_choice == "🔮 Volatility Predictions":
             fig_scatter = build_scatter_pred_actual(preds_df, selected_tid)
             st.plotly_chart(fig_scatter, use_container_width=True)
 
-            # top-5 errors for this time_id
             st.markdown("**Largest prediction errors**")
             worst = (
                 preds_df[preds_df["time_id"] == selected_tid]
@@ -393,13 +405,15 @@ if tab_choice == "🔮 Volatility Predictions":
     else:
         st.warning("Run `python src/models/baseline.py` first to generate predictions.")
 
+
 # ---------------------------------------------------------------------------
-# TAB 2 — Systemic Risk
+# Tab 2 -- Systemic Risk
 # ---------------------------------------------------------------------------
+
 
 elif tab_choice == "⚠️ Systemic Risk":
 
-    st.markdown("## ⚠️ Systemic Risk — Volatility Contagion")
+    st.markdown("## ⚠️ Systemic Risk -- Volatility Contagion")
     st.markdown(
         "Systemic importance computed using **weighted PageRank + Strength + Eigenvector centrality** "
         "on the volatility correlation graph. "
@@ -410,7 +424,6 @@ elif tab_choice == "⚠️ Systemic Risk":
     if hub_df is None:
         st.warning("Run `python src/analysis/systemic_risk.py` first.")
     else:
-        # Top metrics
         top1 = hub_df.iloc[0]
         top2 = hub_df.iloc[1]
         top3 = hub_df.iloc[2]
@@ -440,7 +453,7 @@ elif tab_choice == "⚠️ Systemic Risk":
             )
 
         with col_ts:
-            st.markdown("**Systemic Importance Over Time — Top 5 Hub Stocks**")
+            st.markdown("**Systemic Importance Over Time -- Top 5 Hub Stocks**")
             if sr_df is not None:
                 top5_ids  = hub_df.head(5)["stock_id"].tolist()
                 sr_top5   = sr_df[sr_df["stock_id"].isin(top5_ids)].copy()
@@ -464,7 +477,6 @@ elif tab_choice == "⚠️ Systemic Risk":
                 )
                 st.plotly_chart(fig_ts, use_container_width=True)
 
-            # Contagion matrix
             st.markdown("**Volatility Contagion Matrix (top-20 stocks)**")
             cm_path = RESULTS_DIR / "contagion_matrix.png"
             if cm_path.exists():
@@ -472,7 +484,6 @@ elif tab_choice == "⚠️ Systemic Risk":
             else:
                 st.info("contagion_matrix.png not found in results/")
 
-        # Bar chart ranking completo
         st.markdown("**Full Systemic Importance Distribution**")
         fig_bar = px.bar(
             hub_df.head(40),
@@ -491,9 +502,11 @@ elif tab_choice == "⚠️ Systemic Risk":
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
+
 # ---------------------------------------------------------------------------
-# TAB 3 — Model Performance
+# Tab 3 -- Model Performance
 # ---------------------------------------------------------------------------
+
 
 elif tab_choice == "📊 Model Performance":
 
@@ -508,18 +521,17 @@ elif tab_choice == "📊 Model Performance":
 
         results = {
             "LightGBM + NN features": (y_lgb,  y_true),
-            "Ensemble (LGB×0.62 + GNN×0.38)": (y_ens, y_true),
+            "Ensemble (LGB x0.62 + GNN x0.38)": (y_ens, y_true),
         }
         if "gnn_pred" in preds_df.columns:
             results["GraphSAGE"] = (preds_df["gnn_pred"].values, y_true)
 
-        # metrics
         rows = []
         for name, (pred, true) in results.items():
             rows.append({
                 "Model"  : name,
                 "RMSPE"  : f"{rmspe(true, pred):.5f}",
-                "R²"     : f"{r2(true, pred):.4f}",
+                "R2"     : f"{r2(true, pred):.4f}",
                 "MAE"    : f"{np.mean(np.abs(true-pred)):.6f}",
             })
         perf_df = pd.DataFrame(rows)
@@ -527,7 +539,6 @@ elif tab_choice == "📊 Model Performance":
         st.markdown("**Test Set Metrics**")
         st.dataframe(perf_df, hide_index=True, use_container_width=True)
 
-        # RMSPE per stock (distribuzione errori)
         st.markdown("**RMSPE Distribution by Stock**")
         stock_rmspe = (
             preds_df
@@ -556,7 +567,6 @@ elif tab_choice == "📊 Model Performance":
         )
         st.plotly_chart(fig_stock, use_container_width=True)
 
-        # RMSPE nel tempo (train vs test split)
         st.markdown("**RMSPE Over Time (test window)**")
         time_rmspe = (
             preds_df
@@ -587,7 +597,6 @@ elif tab_choice == "📊 Model Performance":
         )
         st.plotly_chart(fig_time, use_container_width=True)
 
-        # Feature importance
         imp_path = PROCESSED_DIR / "lgb_importance.csv"
         if imp_path.exists():
             st.markdown("**LightGBM Feature Importance**")
@@ -606,4 +615,4 @@ elif tab_choice == "📊 Model Performance":
             )
             st.plotly_chart(fig_imp, use_container_width=True)
         else:
-            st.info("Feature importance file not found. It gets saved automatically when you run baseline.py.")
+            st.info("Feature importance file not found. Run baseline.py to generate it.")

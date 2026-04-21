@@ -1,14 +1,14 @@
 """
 gnn_volatility.py
 =================
-GNN Volatility Predictor (Python 3.14 safe)
+GNN Volatility Predictor
 Node-level regression on the dynamic stock correlation graph.
-
-Manual GraphSAGE in pure torch, without torch_geometric.nn layers
-(which break on Python 3.14 due to the inspector issue).
+GraphSAGE implemented in pure PyTorch via manual mean-aggregation.
 """
 
+
 from __future__ import annotations
+
 
 import torch
 import torch.nn as nn
@@ -16,9 +16,11 @@ import torch.nn.functional as F
 from torch_geometric.data import Data
 
 
+
 # ---------------------------------------------------------------------------
-# GraphSAGE-style message passing (manual)
+# GraphSAGE mean aggregation
 # ---------------------------------------------------------------------------
+
 
 def sage_aggregate(x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
     """
@@ -38,6 +40,7 @@ def sage_aggregate(x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
 
     agg = agg / deg
     return agg
+
 
 
 class SAGEVolModel(nn.Module):
@@ -76,13 +79,15 @@ class SAGEVolModel(nn.Module):
             x = norm(F.relu(x_new))
             x = F.dropout(x, p=self.dropout, training=self.training)
 
-        out = self.head(x).squeeze(-1)  # (N,)
+        out = self.head(x).squeeze(-1)
         return out
+
 
 
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
+
 
 MODEL_REGISTRY = {
     "sage": SAGEVolModel,
@@ -97,12 +102,6 @@ def build_model(
     dropout: float = 0.2,
     **kwargs,
 ) -> nn.Module:
-    """
-    Factory function.
-
-    Usage:
-        model = build_model("sage", in_channels=17, hidden=64)
-    """
     if name not in MODEL_REGISTRY:
         raise ValueError(f"Unknown model '{name}'. Choose from {list(MODEL_REGISTRY)}")
     cls = MODEL_REGISTRY[name]
@@ -110,9 +109,11 @@ def build_model(
                n_layers=n_layers, dropout=dropout, **kwargs)
 
 
+
 # ---------------------------------------------------------------------------
 # Quick sanity check
 # ---------------------------------------------------------------------------
+
 
 if __name__ == "__main__":
     N, F, E = 50, 17, 120
@@ -125,4 +126,4 @@ if __name__ == "__main__":
     model = build_model("sage", in_channels=F, hidden=64)
     out   = model(data)
     params = sum(p.numel() for p in model.parameters())
-    print(f"sage      | output: {out.shape} | params: {params:,}")
+    print(f"sage | output: {out.shape} | params: {params:,}")

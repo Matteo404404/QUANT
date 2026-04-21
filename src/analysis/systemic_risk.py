@@ -3,13 +3,12 @@ systemic_risk.py
 ================
 Contagion Layer: systemic importance on the volatility correlation graph.
 
+
 Metrics (robust on dense graphs):
   - Weighted PageRank
   - Weighted strength (total correlation weight)
   - Eigenvector centrality
 
-Note: DebtRank (Battiston 2012) saturates on dense equity correlation graphs
-(12k+ edges), so a composite centrality approach works better here.
 
 Output:
   data/processed/systemic_risk.parquet  -- score per (time_id, stock_id)
@@ -18,7 +17,9 @@ Output:
   results/systemic_timeseries.png       -- importance time series (top-5 hubs)
 """
 
+
 from __future__ import annotations
+
 
 import sys
 import numpy as np
@@ -29,18 +30,23 @@ import seaborn as sns
 from pathlib import Path
 from tqdm import tqdm
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 
 from src.features.lob_features      import PROCESSED_DIR
 from src.features.correlation_graph import build_graphs
+
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
 
+
 # ---------------------------------------------------------------------------
-# Graph → adj matrix
+# Graph to adjacency matrix
 # ---------------------------------------------------------------------------
+
 
 def graph_to_adj(graph) -> tuple[np.ndarray, list]:
     n_nodes  = graph.x.shape[0]
@@ -53,7 +59,7 @@ def graph_to_adj(graph) -> tuple[np.ndarray, list]:
 
     adj = np.zeros((n_nodes, n_nodes), dtype=np.float32)
     adj[edge_idx[0], edge_idx[1]] = edge_w
-    adj = (adj + adj.T) / 2.0  # simmetrizza
+    adj = (adj + adj.T) / 2.0
 
     stock_ids = (
         graph.stock_ids.tolist()
@@ -63,9 +69,11 @@ def graph_to_adj(graph) -> tuple[np.ndarray, list]:
     return adj, stock_ids
 
 
+
 # ---------------------------------------------------------------------------
-# Composite systemic importance (robust on dense graphs)
+# Composite systemic importance
 # ---------------------------------------------------------------------------
+
 
 def compute_systemic_importance(
     adj:        np.ndarray,
@@ -87,7 +95,6 @@ def compute_systemic_importance(
     """
     N = adj.shape[0]
 
-    # sparsify: keep edges above 80th percentile
     nonzero = adj[adj > 0]
     if len(nonzero) == 0:
         return np.zeros(N, dtype=np.float32)
@@ -99,17 +106,14 @@ def compute_systemic_importance(
 
     G = nx.from_numpy_array(adj_sparse)
 
-    # 1. weighted PageRank
     try:
         pr     = nx.pagerank(G, alpha=pagerank_alpha, weight="weight", max_iter=n_iter)
         pr_arr = np.array([pr.get(i, 0.0) for i in range(N)], dtype=np.float64)
     except Exception:
         pr_arr = np.ones(N, dtype=np.float64) / N
 
-    # 2. Weighted strength
     strength = adj_sparse.sum(axis=1).astype(np.float64)
 
-    # 3. Eigenvector centrality
     try:
         ec     = nx.eigenvector_centrality_numpy(G, weight="weight")
         ec_arr = np.array([ec.get(i, 0.0) for i in range(N)], dtype=np.float64)
@@ -125,9 +129,11 @@ def compute_systemic_importance(
     return score.astype(np.float32)
 
 
+
 # ---------------------------------------------------------------------------
-# Pipeline principale
+# Main pipeline
 # ---------------------------------------------------------------------------
+
 
 def compute_all_systemic_risk(
     features_df:  pd.DataFrame,
@@ -178,7 +184,6 @@ def compute_all_systemic_risk(
     result_df = pd.DataFrame(records)
     print(f"Done. Shape: {result_df.shape}")
 
-    # hub stocks: rank by mean systemic importance
     hub_df = (
         result_df
         .groupby("stock_id")["systemic_importance"]
@@ -203,9 +208,11 @@ def compute_all_systemic_risk(
     return result_df, hub_df
 
 
+
 # ---------------------------------------------------------------------------
-# Contagion matrix heatmap (top-N stocks)
+# Contagion matrix heatmap
 # ---------------------------------------------------------------------------
+
 
 def plot_contagion_matrix(
     graphs:       list,
@@ -214,7 +221,7 @@ def plot_contagion_matrix(
     sparsify_pct: float = 80.0,
     save_path:    str   = None,
 ):
-    """Heatmap C[i,j] = mean correlation weight between stock i and j, limited to top-N systemic stocks."""
+    """Heatmap C[i,j] = mean correlation weight between stock i and j, top-N systemic stocks."""
     if save_path is None:
         save_path = str(RESULTS_DIR / "contagion_matrix.png")
 
@@ -234,7 +241,6 @@ def plot_contagion_matrix(
 
         sub_adj = adj[np.ix_(present_idx, present_idx)]
 
-        # sparsify sub-adjacency too
         nonzero = sub_adj[sub_adj > 0]
         if len(nonzero) > 0:
             thr     = np.percentile(nonzero, sparsify_pct)
@@ -272,7 +278,7 @@ def plot_contagion_matrix(
         cbar_kws    = {"label": "Avg correlation weight (sparsified)"},
     )
     ax.set_title(
-        f"Volatility Contagion Matrix — Top {top_n} Systemic Stocks\n"
+        f"Volatility Contagion Matrix -- Top {top_n} Systemic Stocks\n"
         f"(PageRank + Strength + Eigenvector, avg over {count} windows)",
         fontsize=14, fontweight="bold", pad=15,
     )
@@ -286,9 +292,11 @@ def plot_contagion_matrix(
     print(f"Saved to {save_path}")
 
 
+
 # ---------------------------------------------------------------------------
-# Time series of systemic importance for top-N hub stocks
+# Time series of systemic importance
 # ---------------------------------------------------------------------------
+
 
 def plot_systemic_timeseries(
     result_df: pd.DataFrame,
@@ -318,12 +326,12 @@ def plot_systemic_timeseries(
         )
 
     ax.set_title(
-        f"Systemic Importance Over Time — Top {top_n} Hub Stocks\n"
+        f"Systemic Importance Over Time -- Top {top_n} Hub Stocks\n"
         "(Composite: PageRank + Strength + Eigenvector on volatility correlation graph)",
         fontsize=13, fontweight="bold",
     )
     ax.set_xlabel("Time ID (market session)", fontsize=11)
-    ax.set_ylabel("Systemic Importance Score [0–1]", fontsize=11)
+    ax.set_ylabel("Systemic Importance Score [0-1]", fontsize=11)
     ax.legend(fontsize=10, framealpha=0.9)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -332,9 +340,11 @@ def plot_systemic_timeseries(
     print(f"Saved to {save_path}")
 
 
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 if __name__ == "__main__":
     features_path = PROCESSED_DIR / "features_with_nn.parquet"
@@ -345,7 +355,6 @@ if __name__ == "__main__":
     df = pd.read_parquet(features_path)
     print(f"Shape: {df.shape}")
 
-    # 1. compute systemic importance for all sampled time_ids
     result_df, hub_df = compute_all_systemic_risk(
         df,
         sample_every = 5,
@@ -354,12 +363,10 @@ if __name__ == "__main__":
         save         = True,
     )
 
-    # 2. contagion matrix heatmap (top-20 stocks)
     print("\nBuilding contagion matrix (top 20 stocks)...")
     graphs = build_graphs(df, window=50, threshold=0.3)
     plot_contagion_matrix(graphs, hub_df, top_n=20, sparsify_pct=80.0)
 
-    # 3. Time series top-5 hub stocks
     print("\nPlotting systemic importance time series...")
     plot_systemic_timeseries(result_df, hub_df, top_n=5)
 
